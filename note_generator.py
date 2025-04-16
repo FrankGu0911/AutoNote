@@ -2,11 +2,11 @@ import os
 from typing import Dict, List, Any, Optional
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
 import config
 import markdown
 import re
 from templates.summary_prompt import SUMMARY_TEMPLATE
+from utils.cache_manager import CacheManager
 
 class NoteGenerator:
     """
@@ -36,7 +36,11 @@ class NoteGenerator:
             template=SUMMARY_TEMPLATE
         )
         
-        self.summary_chain = LLMChain(llm=self.llm, prompt=self.summary_template)
+        # 使用管道方式替代LLMChain
+        self.summary_chain = self.summary_template | self.llm
+        
+        # 初始化缓存管理器
+        self.cache_manager = CacheManager()
     
     def extract_ppt_title(self, slides_data: List[Dict[str, Any]]) -> str:
         """
@@ -74,32 +78,54 @@ class NoteGenerator:
         
         return formatted_analysis
     
-    def generate_notes(self, slides_data: List[Dict[str, Any]]) -> str:
+    def generate_notes(self, slides_data: List[Dict[str, Any]], input_file: str = None) -> str:
         """
         生成完整的笔记
         
         Args:
             slides_data: 包含所有带分析的幻灯片数据的列表
+            input_file: 输入文件路径，用于缓存
             
         Returns:
             str: 生成的Markdown格式笔记
         """
+        # 检查缓存
+        cache_mode = f"notes_{self.style}"
+        if input_file and self.cache_manager.has_cache(input_file, cache_mode, self.model_name):
+            print(f"找到缓存的笔记内容（风格: {self.style}），正在加载...")
+            return self.cache_manager.load_cache(input_file, cache_mode, self.model_name)
+        
+        print(f"开始生成PPT笔记（风格: {self.style}），共 {len(slides_data)} 页...")
         ppt_title = self.extract_ppt_title(slides_data)
         all_slides_analysis = self.format_slide_analysis(slides_data)
         
         # 使用LLM生成最终笔记
+        print(f"正在处理 {len(slides_data)} 页内容的分析结果...")
         result = self.summary_chain.invoke({
             "style": self.style,
             "all_slides_analysis": all_slides_analysis,
             "ppt_title": ppt_title
         })
         
-        markdown_note = result["text"]
+        # 根据新API，结果可能直接是消息内容或包含content字段
+        if isinstance(result, dict) and "content" in result:
+            markdown_note = result["content"]
+        elif isinstance(result, dict) and "text" in result:
+            markdown_note = result["text"]
+        else:
+            markdown_note = str(result)
+            
+        print(f"笔记生成完成：约 {len(markdown_note)} 字符")
         
         # 如果配置了关键词高亮，进行处理
         if config.HIGHLIGHT_KEYWORDS:
             markdown_note = self.highlight_keywords(markdown_note)
         
+        # 保存到缓存
+        if input_file:
+            self.cache_manager.save_cache(input_file, cache_mode, self.model_name, markdown_note)
+            print(f"已缓存当前笔记内容（风格: {self.style}）")
+            
         return markdown_note
     
     def highlight_keywords(self, markdown_text: str) -> str:
@@ -135,7 +161,7 @@ class NoteGenerator:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(markdown_text)
             
-            print(f"笔记已保存到: {output_path}")
+            print(f"笔记已成功保存到: {output_path}")
             return True
         except Exception as e:
             print(f"保存笔记失败: {e}")

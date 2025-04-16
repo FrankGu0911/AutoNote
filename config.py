@@ -7,6 +7,7 @@ load_dotenv()
 # API 设置 - 文本LLM
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")  # 自定义API端点
+DEFAULT_API_BASE = OPENAI_API_BASE  # 默认API基础URL
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 
 # API 设置 - 视觉语言模型

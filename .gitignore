@@ -29,7 +29,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+temp_images/
 # 输出目录
 output/
 

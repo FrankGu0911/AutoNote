@@ -7,4 +7,7 @@ pillow>=10.0.0
 markdown>=3.4.3
 python-dotenv>=1.0.0
 numpy>=1.24.0
-requests>=2.31.0 
+requests>=2.31.0
+weasyprint>=60.1
+pandoc>=2.3
+comtypes>=1.2.0;platform_system=="Windows" 
