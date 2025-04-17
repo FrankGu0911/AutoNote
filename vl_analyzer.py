@@ -13,6 +13,7 @@ from templates.summary_prompt import SUMMARY_TEMPLATE, SUMMARY_WITH_IMAGES_TEMPL
 from utils.helpers import ensure_directory_exists
 from utils.cache_manager import CacheManager
 import openai
+from openai import OpenAI
 import traceback
 
 class VLAnalyzer:
@@ -46,6 +47,12 @@ class VLAnalyzer:
         # 创建摘要模板
         self.summary_template = PromptTemplate(
             input_variables=["document_title", "total_pages"],
+            template=VL_SUMMARY_TEMPLATE
+        )
+        
+        # 创建文档摘要模板
+        self.document_summary_template = PromptTemplate(
+            input_variables=["document_title", "total_pages", "page_analyses"],
             template=VL_SUMMARY_TEMPLATE
         )
         
@@ -458,45 +465,45 @@ class VLAnalyzer:
         
         Args:
             pages_data: 页面数据列表，包含分析结果
-            document_title: 文档标题
+            document_title: 文档标题，如果未提供则使用默认标题
             input_file: 输入文件路径，用于缓存
             
         Returns:
-            str: 生成的摘要内容
+            str: 生成的文档摘要
         """
         try:
-            # 检查是否有缓存
-            cache_key = f"document_summary"
+            print(f"开始生成文档摘要，共 {len(pages_data)} 页...")
+            
+            # 获取已缓存的摘要，如果有
+            cache_key = "document_summary"
             if input_file and self.cache_manager.has_cache(input_file, cache_key, self.model_name):
                 print("找到缓存的文档摘要，正在加载...")
                 return self.cache_manager.load_cache(input_file, cache_key, self.model_name)
             
-            print(f"开始生成《{document_title}》文档摘要（共 {len(pages_data)} 页）...")
-            
-            # 提取所有页面的分析结果
+            # 准备分析数据
             analyses = []
             for page_data in pages_data:
-                if "analysis" in page_data and page_data["analysis"]:
-                    analysis = {
-                        "index": page_data["index"] + 1,
-                        "title": page_data.get("title", ""),
-                        "analysis": page_data["analysis"]
-                    }
-                    analyses.append(analysis)
-            
-            if not analyses:
-                return "无法生成文档摘要：没有有效的页面分析结果。"
+                if 'analysis' in page_data:
+                    analyses.append({
+                        "page_index": page_data.get('index', 0) + 1,
+                        "title": page_data.get('title', f"页面 {page_data.get('index', 0) + 1}"),
+                        "analysis": page_data['analysis']
+                    })
             
             # 使用模板构建提示
             prompt = self.document_summary_template.format(
                 document_title=document_title or "未命名文档",
-                page_count=len(pages_data),
+                total_pages=len(pages_data),
                 page_analyses=json.dumps(analyses, ensure_ascii=False, indent=2)
             )
             
             # 调用API生成摘要
             print(f"调用API生成文档摘要（模型：{config.DEFAULT_MODEL}）...")
-            response = openai.ChatCompletion.create(
+            client = OpenAI(
+                api_key=config.OPENAI_API_KEY,
+                base_url=config.OPENAI_API_BASE
+            )
+            response = client.chat.completions.create(
                 model=config.DEFAULT_MODEL,
                 messages=[
                     {"role": "system", "content": "你是一个专业的文档摘要助手。"},
@@ -506,7 +513,7 @@ class VLAnalyzer:
                 max_tokens=1000
             )
             
-            summary = response.choices[0].message["content"].strip()
+            summary = response.choices[0].message.content.strip()
             
             print(f"已生成文档摘要：约 {len(summary)} 字符")
             
@@ -766,7 +773,11 @@ class VLAnalyzer:
                 
                 # 调用API生成笔记
                 print(f"调用API生成PPT笔记（模型：{config.DEFAULT_MODEL}）...")
-                response = openai.ChatCompletion.create(
+                client = OpenAI(
+                    api_key=config.OPENAI_API_KEY,
+                    base_url=config.OPENAI_API_BASE
+                )
+                response = client.chat.completions.create(
                     model=config.DEFAULT_MODEL,
                     messages=[
                         {"role": "system", "content": "你是一个专业的PPT笔记助手。"},
